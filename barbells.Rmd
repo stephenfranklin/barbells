@@ -5,6 +5,31 @@ date: "July 17, 2014"
 output: html_document
 ---
 
+In this analysis, we predict whether the subject performed an exercise in one of five manners: correctly, or having made one of four common mistakes in movement.
+
+Excerpt from [Groupware@LES](http://groupware.les.inf.puc-rio.br/har):    
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg).
+
+For data recording we used four 9 degrees of freedom Razor
+inertial measurement units (IMU), which provide three-axes
+acceleration, gyroscope and magnetometer data at a joint
+sampling rate of 45 Hz. 
+
+The four IMUs are located on the dumbell, forearm, upper arm, and the waist.
+
+#### Preliminary Examination of Dataset:
+
+There are six subjects and 19,622 observations. Each subject has many observations over a short period of time (0.5 - 2.0 seconds).
+
+There are occasional observatons for which the 'new_window' variable is marked 'yes', and which have additional features. There are features for each dimension and location: kurtosis, skewness, max, min, amplitude, avg, stddev, var; as well as 'var_total_accel_' for each location.
+
+We are provided the test set so we ought to ascertain some important things about it. (Although one doesn't usually look at their test set, they do usually know some basic things about it.) Firstly, the test set is not time sliced, so we needn't worry about deriving time sliced predictions. Second, the test set doesn't contain any 'new_window = yes' data, therefore all of that data may be safely ignored.
+
+## Analysis
+
 ### Get the data
 The data used in this analysis was collected by [Groupware@LES](http://groupware.les.inf.puc-rio.br/har).
 ```{r getdata, eval=FALSE}
@@ -14,3 +39,98 @@ download.file(url = data_train, destfile = "pml-training.csv",method = "wget")
 download.file(url = data_test, destfile = "pml-testing.csv",method = "wget")
 ```
 
+### Load the data:
+```{r load, cache=TRUE}
+pml.training <- read.csv("pml-training.csv")
+pml.testing <- read.csv("pml-testing.csv")
+#View(pml.training)
+
+### Cull unnecessary variables ###
+except.these <- grep("kurtosis|skewness|max|min|amplitude|avg|stddev|var", names(pml.training))
+except.these <- c(except.these,c(2,5,6)) ## factor variables (user_name, cvtd_timestamp, new_window.
+pml.training1 <- pml.training[,-except.these]
+#View(pml.training1)
+sum(is.na(pml.training1))  ## 0 is nice.
+pml.testing1 <- pml.testing[,-except.these]
+
+### Integer variables to numeric ###
+pml.training1[, -57] <- as.data.frame(lapply(pml.training1[,-57],as.numeric))
+pml.testing1[, -57] <- as.data.frame(lapply(pml.testing1[,-57],as.numeric))
+#str(pml.training1)
+```
+
+### R Libraries
+```{r libraries, cache=FALSE}
+library(caret)
+```
+
+### Split Data
+We'll reserve 20% of our data for the test set. And we'll perform cross-validation on the training set.
+```{r split}
+inTrain <- createDataPartition(y=pml.training1$classe,
+                              p=0.80, list=FALSE)
+training <- pml.training1[inTrain,]
+testing <- pml.training1[-inTrain,]
+```
+The training set is now randomized (though equally distributed amongst the five classes of our outcome variable 'classe'.)
+
+## Cross Validation
+We'll use a k-folds cross validation.
+```{r cross}
+set.seed(32323)
+folds <- createFolds(y=training$classe,k=10,
+                             list=TRUE,returnTrain=TRUE)
+sapply(folds,length)  ## Check the lengths of our folds.
+folds[[1]][1:10]
+str(folds[[10]])
+```
+
+### Model
+```{r }
+tc <- trainControl(method="cv")
+preProc <- preProcess(training[,-57],method="pca",thresh=0.90)
+preProc
+trainPC <- predict(preProc,training[,-57])
+modelFit <- train(training$classe ~ .,method="glm",data=trainPC)
+
+model.glm <- train(classe ~ ., data=training,method="glm",trControl=tc)
+
+str(training)
+```
+
+---
+
+
+
+
+
+
+
+
+
+
+---
+
+### Works Cited
+
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6. 
+Cited by 2 (Google Scholar)
+
+---
+
+## Other notes, to be reviewed/deleted:
+```r
+dim(subset(training1, training1$classe=="A"))
+[1] 5580   60
+dim(subset(training1, training1$classe=="B"))
+[1] 3797   60
+dim(subset(training1, training1$classe=="C"))
+[1] 3422   60
+dim(subset(training1, training1$classe=="D"))
+[1] 3216   60
+dim(subset(training1, training1$classe=="E"))
+[1] 3607   60
+dim(subset(training1, training1$classe=="F"))
+[1]  0 60
+
+```
