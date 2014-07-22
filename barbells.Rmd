@@ -26,7 +26,7 @@ There are six subjects and 19,622 observations. Each subject has many observatio
 
 There are occasional observatons for which the 'new_window' variable is marked 'yes', and which have additional features. There are features for each dimension and location: kurtosis, skewness, max, min, amplitude, avg, stddev, var; as well as 'var_total_accel_' for each location.
 
-We are provided the test set so we ought to ascertain some important things about it. (Although one doesn't usually look at their test set, they do usually know some basic things about it.) Firstly, the test set is not time sliced, so we needn't worry about deriving time sliced predictions. Second, the test set doesn't contain any 'new_window = yes' data, therefore all of that data may be safely ignored.
+We are provided the test set, 'pml-testing.csv', so we ought to ascertain some important things about it. (Although one doesn't usually look at their test set, they do usually know some basic things about it.) Firstly, the test set is not time sliced, so we needn't worry about deriving time sliced predictions. Second, the test set doesn't contain any 'new_window = yes' data, therefore all of that data may be safely ignored. This test set is actually the grading test set and doesn't contain the outcomes (The last column is 'problem_id' instead of 'classe'. We'll make a new test set from 'pml-training.csv' to evaluate our predictions.
 
 ## Analysis
 
@@ -43,66 +43,175 @@ download.file(url = data_test, destfile = "pml-testing.csv",method = "wget")
 ```{r load, cache=TRUE}
 pml.training <- read.csv("pml-training.csv")
 pml.testing <- read.csv("pml-testing.csv")
-#View(pml.training)
+#edit(pml.training)
+#edit(pml.testing)
 
 ### Cull unnecessary variables ###
 except.these <- grep("kurtosis|skewness|max|min|amplitude|avg|stddev|var", names(pml.training))
-except.these <- c(except.these,c(2,5,6)) ## factor variables (user_name, cvtd_timestamp, new_window.
+except.these <- c(except.these,c(1:7)) ## time and identification variables (X, user_name, cvtd_timestamp, raw_timestamp_part_2, new_window, num_window).
 pml.training1 <- pml.training[,-except.these]
 #View(pml.training1)
-sum(is.na(pml.training1))  ## 0 is nice.
+sum(is.na(pml.training1))  ## Check for NAs. 0 is nice.
 pml.testing1 <- pml.testing[,-except.these]
 
 ### Integer variables to numeric ###
-pml.training1[, -57] <- as.data.frame(lapply(pml.training1[,-57],as.numeric))
-pml.testing1[, -57] <- as.data.frame(lapply(pml.testing1[,-57],as.numeric))
+which( colnames(pml.training1)=="classe" )
+pml.training1[, -53] <- as.data.frame(lapply(pml.training1[,-53],as.numeric))
+pml.testing1[, -53] <- as.data.frame(lapply(pml.testing1[,-53],as.numeric))
 #str(pml.training1)
 ```
 
 ### R Libraries
 ```{r libraries, cache=FALSE}
-library(caret)
+library(caret); library(randomForest); library(rattle); library(rpart)
 ```
 
 ### Split Data
-We'll reserve 20% of our data for the test set. And we'll perform cross-validation on the training set.
+We'll reserve 20% of our data for the test set.
 ```{r split}
+set.seed(42)
+inTrain <- createDataPartition(y=pml.training1$classe,
+                              p=0.20, list=FALSE)
+training <- pml.training1[inTrain,]
+testing <- pml.training1[-inTrain,]
+training[1,56]
+class(training$classe)
+dim(training);dim(testing)
+str(testing)
+```
+The training set is now randomized (though equally distributed amongst the five classes of our outcome variable 'classe'.)
+
+
+### Model - Random Forests
+```{r model, cache=TRUE}
+set.seed(42)
+#barb.rf <- randomForest(classe ~ ., data=training,prox=T)
+#### barb.rf : 
+#### With only 20% of the data in the training set,
+#### this command took . . . 
+####     user   system  elapsed 
+#### 3531.559   27.930 3620.868
+system.time( barb.rf <- train(classe~ .,data=training,method="rf",prox=TRUE) )
+####     user   system  elapsed 
+#### 3395.666   34.611 3509.028 
+barb.rf$finalModel
+varImpPlot(barb.rf$finalModel)
+## looks like 'roll_belt' and 'raw_timestamp_part_1' are the two most important.
+barb.c <- classCenter(training[,-53], training[,53], barb.rf$finalModel$prox)
+
+fancyRpartPlot(barb.rf$finalModel)
+
+sort(row.names(barb.rf$finalModel$importance), decreasing = T)
+
+plot(training[,3], train[,4], pch=21, xlab=names(iris)[3], ylab=names(iris)[4],
+bg=c("red", "blue", "green")[as.numeric(factor(iris$Species))],
+main="Iris Data with Prototypes")
+points(iris.p[,3], iris.p[,4], pch=21, cex=2, bg=c("red", "blue", "green"))
+```
+
+### Split Data AGAIN
+We'll now reserve 80% of our data for the test set.
+```{r split}
+set.seed(42)
 inTrain <- createDataPartition(y=pml.training1$classe,
                               p=0.80, list=FALSE)
 training <- pml.training1[inTrain,]
 testing <- pml.training1[-inTrain,]
-```
-The training set is now randomized (though equally distributed amongst the five classes of our outcome variable 'classe'.)
-
-## Cross Validation
-We'll use a k-folds cross validation.
-```{r cross}
-set.seed(32323)
-folds <- createFolds(y=training$classe,k=10,
-                             list=TRUE,returnTrain=TRUE)
-sapply(folds,length)  ## Check the lengths of our folds.
-folds[[1]][1:10]
-str(folds[[10]])
+training[1,56]
+class(training$classe)
+dim(training);dim(testing)
 ```
 
-### Model
-```{r }
-tc <- trainControl(method="cv")
-preProc <- preProcess(training[,-57],method="pca",thresh=0.90)
-preProc
-trainPC <- predict(preProc,training[,-57])
-modelFit <- train(training$classe ~ .,method="glm",data=trainPC)
 
-model.glm <- train(classe ~ ., data=training,method="glm",trControl=tc)
+### Predicting with the test 80% test set
+```{r}
+pred <- predict(barb.rf,testing)
+testing$predRight <- pred==testing$classe
+table(pred,testing$classe)
 
-str(training)
+
+plot(sort(modFit$importance),training) 
+fancyRpartPlot(modFit)
+summary(modFit)
 ```
 
----
+
+### Let's try again with 80%:
+```{r}
+####  Now train with 80%
+set.seed(42)
+#### barb80.rf : 
+#### With 80% of the data in the training set,
+#### this command took . . . failed. 
+#### Timing stopped at: 33087.95 353.427 38917.49 
+#system.time( barb80.rf <- train(classe~ .,data=training,method="rf",prox=TRUE) )
+
+
+#### Without prox,
+####     user   system  elapsed 
+#### 8080.899   62.442 8234.453 
+system.time( barb80.rf <- train(classe~ .,data=training,method="rf",prox=FALSE) )
+####     user   system  elapsed 
+#### 8358.456   66.568 8647.038 
+
+### PREDICTION with the test set (20%)
+pred <- predict(barb80.rf,pml.testing)
+testing$predRight <- pred==pml.testing$classe
+table(pred,testing$classe)
+barb80.rf$finalModel$importance
+
+
+
+### submission
+answers <- as.character(pred)
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(answers)
+
+plot(sort(modFit$importance),training) 
+
+
+fancyRpartPlot(modFit)
+summary(modFit)
+
+```
+
+
+### train with trees (80/20)
+```{r}
+set.seed(42)
+system.time( barb.tr <- train(classe ~ .,method="rpart",data=training) )
+####    user  system elapsed 
+#### 87.331   3.113  91.308
+barb.tr$finalModel
+plot(barb.tr$finalModel, uniform=TRUE, 
+      main="Classification Tree")
+text(barb.tr$finalModel, use.n=TRUE, all=TRUE, cex=.8)
+
+fancyRpartPlot(barb.tr$finalModel)
+
+barb.tr$results
+barb.tr.imp<-sort(barb.tr$finalModel$variable.importance, decreasing = T)
+barb.tr.imp
+
+predict(barb.tr,newdata=testing)
+```
 
 
 
 
+
+
+## Out-of-bag Error Estimate without Cross Validation
+In random forests, there is no need for cross-validation or a separate test set to get an unbiased estimate of the test set error.
+http://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm#ooberr
 
 
 
