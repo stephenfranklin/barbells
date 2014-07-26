@@ -91,9 +91,8 @@ system.time( barb.tr <- train(classe ~ .,method="rpart",data=training, trControl
 #### 36.995   0.913  41.745 
 ```
 
-
 #### Trees Analysis
-Our tree model is not better than chance. The in-sample error rate (from a 10-fold cross-validation) is 51.1% (`barb.tr$results`). The out-of-sample error rate is 50.2%.
+Our tree model is not better than chance. The in-sample error rate (from a 10-fold cross-validation) is 49.8% (`barb.tr$results`). The out-of-sample error rate is 50.2%.
 
 ```{r}
 barb.tr$finalModel
@@ -118,7 +117,7 @@ pred.te<- predict(barb.tr,newdata=testing)
 
 testing$predtrRight <- pred.te==testing$classe
 table(pred.te,testing$classe)
-sum(testing$predtrRight)/nrow(testing)  ## out of sample error rate
+1-sum(testing$predtrRight)/nrow(testing)  ## out of sample error rate
 
 ```
 
@@ -144,17 +143,17 @@ inTrain <- createDataPartition(y=pml.training1$classe,
                               p=0.20, list=FALSE)
 training20 <- pml.training1[inTrain,]
 testing80 <- pml.training1[-inTrain,]
-training[1,56]
-class(training$classe)
-dim(training);dim(testing)
-str(testing)
+training20[1,56]
+class(training20$classe)
+dim(training20);dim(testing80)
+str(testing80)
 ```
 
 ##### Train the Random Forest model
 The out-of-bag error rate is 2.4%. 
-```{r model, cache=TRUE}
+```{r model, dependson='split20', cache=TRUE}
 set.seed(42)
-system.time( barb.rf <- train(classe ~., data=training,method="rf",prox=TRUE) )
+system.time( barb.rf <- train(classe ~., data=training20,method="rf",prox=TRUE) )
 ####     user   system  elapsed 
 #### 3395.666   34.611 3509.028 
 barb.rf$finalModel
@@ -162,32 +161,38 @@ barb.rf$finalModel
 varImpPlot(barb.rf$finalModel)
 
 ## Get features in order of importance
-imp <- as.data.frame(barb.rf$finalModel$importance, r)
+imp <- as.data.frame(barb.rf$finalModel$importance)
 imp <- cbind(feature = rownames(imp), imp)
 rownames(imp)<-NULL
 head(imp[with(imp, order(-MeanDecreaseGini)), ],10)
+
 
 ```
 
 #### Predicting with the test set of 80% 
 ```{r}
-pred <- predict(barb.rf,testing)
-testing$predRight <- pred==testing$classe
-table(pred,testing$classe)
-
-plot(sort(modFit$importance),training) 
-fancyRpartPlot(modFit)
-summary(modFit)
+pred <- predict(barb.rf,testing80)
+testing$predRight <- pred==testing80$classe
+table(pred,testing80$classe)
 ```
 
 #### This Random Forest model uses an 80% Training set but doesn't calculate proximities.
-```{r}
-#### Without prox,
-####     user   system  elapsed 
-#### 8080.899   62.442 8234.453 
+
+The features' importance branches differently. It attains an out-of-bag error rate of 0.5% and an out-of-sample error rate of .
+```{r, dependson='split', cache=TRUE}
 system.time( barb80.rf <- train(classe~ .,data=training,method="rf",prox=FALSE) )
 ####     user   system  elapsed 
 #### 8358.456   66.568 8647.038 
+
+## Get features in order of importance
+imp80 <- as.data.frame(barb80.rf$finalModel$importance)
+imp80 <- cbind(feature = rownames(imp80), imp80)
+rownames(imp80)<-NULL
+head(imp[with(imp80, order(-MeanDecreaseGini)), ],10)
+
+varImpPlot(barb80.rf$finalModel)
+
+barb80.rf$finalModel
 ```
 
 #### PREDICTION with the test set (20%)
@@ -195,13 +200,15 @@ system.time( barb80.rf <- train(classe~ .,data=training,method="rf",prox=FALSE) 
 pred <- predict(barb80.rf,testing)
 testing$predRight <- pred==testing$classe
 table(pred,testing$classe)
-barb80.rf$finalModel$importance
+
 table(testing$predRight,testing$classe)
+
+### Out-of-Sample Error rate
+1-sum(testing$predRight)/nrow(testing)
 ```
 
 
-### submission
-```{r}
+```{r, eval=FALSE, echo=FALSE}
 answers <- as.character(pred)
 
 pml_write_files = function(x){
@@ -223,7 +230,7 @@ summary(modFit)
 ```
 
 
-```{r}
+```{r eval=FALSE, echo=FALSE}
 ### save object to .Rdata
 save.image()
 ```
