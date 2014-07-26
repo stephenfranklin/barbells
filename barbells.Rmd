@@ -5,7 +5,7 @@ date: "July 17, 2014"
 output: html_document
 ---
 
-In this analysis, we predict whether the subject performed an exercise in one of five manners: correctly, or having made one of four common mistakes in movement.
+In this analysis, we predict whether the subject performed an exercise in one of five manners: correctly, or having made one of four common mistakes in movement. We found that the tree classification algorithm poorly predicted the class of movement (not better than chance), but that the random forest algorithm predicted it very well (OOB error of 0.6%).
 
 Excerpt from [Groupware@LES](http://groupware.les.inf.puc-rio.br/har):    
 
@@ -68,7 +68,7 @@ library(caret); library(randomForest); library(rattle); library(rpart)
 
 ### Split Data
 We'll reserve 80% of our data for training and 20% for the test set.
-```{r split}
+```{r split, cache=TRUE}
 set.seed(42)
 inTrain <- createDataPartition(y=pml.training1$classe,
                               p=0.80, list=FALSE)
@@ -77,14 +77,14 @@ testing <- pml.training1[-inTrain,]
 training[1,56]
 class(training$classe)
 dim(training);dim(testing)
-str(testing)
+#str(testing)
 ```
 The training set is now randomized (though equally distributed amongst the five classes of our outcome variable 'classe'.)
 
 ### Model with Trees
 We'll train a model the Classification and Regression Tree (CART) algorithm (`method='rpart'`). We'll also use a 10-fold cross-validation (from within the `trControl` settings).
 
-```{r}
+```{r tree, dependson='split', cache=TRUE}
 set.seed(42)
 system.time( barb.tr <- train(classe ~ .,method="rpart",data=training, trControl = trainControl(method = "cv", number = 10)) )
 ####   user  system elapsed 
@@ -94,22 +94,11 @@ system.time( barb.tr <- train(classe ~ .,method="rpart",data=training, trControl
 #### Trees Analysis
 Our tree model is not better than chance. The in-sample error rate (from a 10-fold cross-validation) is 49.8% (`barb.tr$results`). The out-of-sample error rate is 50.2%.
 
-```{r}
+```{r anal.tree, dependson='tree'}
 barb.tr$finalModel
-
-#plot(barb.tr$finalModel, uniform=TRUE, 
-#      main="Classification Tree")
-#text(barb.tr$finalModel, use.n=TRUE, all=TRUE, cex=1)
-
-#fancyRpartPlot(barb.tr$finalModel)
 
 barb.tr$resample ## error rate of each fold
 barb.tr$results ## cp = complexity parameter
-
-#head(sort(barb.tr$finalModel$variable.importance, decreasing = T),10)
-
-#barb.tr.imp<-as.list(sort(barb.tr$finalModel$variable.importance, decreasing = T))
-#barb.tr.imp
 
 confusionMatrix(barb.tr)
 
@@ -123,21 +112,20 @@ table(pred.te,testing$classe)
 
 ### Model with Random Forest
 
-#### The Random Forest took too long to calculate proximities with the 80% training set and with `prox=TRUE`.
-```{r, eval=FALSE}
+#### This Random Forest took too long to calculate proximities with the 80% training set and with `prox=TRUE`.
+```{r rf-fail, eval=FALSE, echo=TRUE}
 ####  Train with 80%
 set.seed(42)
-#### barb80.rf : 
+system.time( barb80.rf <- train(classe~ .,data=training,method="rf",prox=TRUE) )
 #### With 80% of the data in the training set,
 #### this command took . . . failed. 
 #### Timing stopped at: 33087.95 353.427 38917.49 
-system.time( barb80.rf <- train(classe~ .,data=training,method="rf",prox=TRUE) )
 ```
 
-#### This Random Forest model used a training set of 20% to keep the processing time down (prox = TRUE).
+#### This Random Forest model uses a training set of 20% to keep the processing time down (prox = TRUE).
 
 ##### Split the Data (20/80)
-```{r split20}
+```{r split20, cache=TRUE}
 set.seed(42)
 inTrain <- createDataPartition(y=pml.training1$classe,
                               p=0.20, list=FALSE)
@@ -146,12 +134,12 @@ testing80 <- pml.training1[-inTrain,]
 training20[1,56]
 class(training20$classe)
 dim(training20);dim(testing80)
-str(testing80)
+#str(testing80)
 ```
 
-##### Train the Random Forest model
+##### Train the Random Forest model (20%)
 The out-of-bag error rate is 2.4%. 
-```{r model, dependson='split20', cache=TRUE}
+```{r rf20, dependson='split20', cache=TRUE}
 set.seed(42)
 system.time( barb.rf <- train(classe ~., data=training20,method="rf",prox=TRUE) )
 ####     user   system  elapsed 
@@ -165,21 +153,17 @@ imp <- as.data.frame(barb.rf$finalModel$importance)
 imp <- cbind(feature = rownames(imp), imp)
 rownames(imp)<-NULL
 head(imp[with(imp, order(-MeanDecreaseGini)), ],10)
-
-
 ```
 
-#### Predicting with the test set of 80% 
-```{r}
+#### Predicting the random forest model with the test set of 80% 
+```{r anal.rf20, dependson='rf20'}
 pred <- predict(barb.rf,testing80)
 testing$predRight <- pred==testing80$classe
 table(pred,testing80$classe)
 ```
 
-#### This Random Forest model uses an 80% Training set but doesn't calculate proximities.
-
-The features' importance branches differently. It attains an out-of-bag error rate of 0.5% and an out-of-sample error rate of .
-```{r, dependson='split', cache=TRUE}
+#### This Random Forest model uses an 80% Training set but doesn't calculate proximities (prox=FALSE).
+```{r rf80, dependson='split', cache=TRUE}
 system.time( barb80.rf <- train(classe~ .,data=training,method="rf",prox=FALSE) )
 ####     user   system  elapsed 
 #### 8358.456   66.568 8647.038 
@@ -196,7 +180,9 @@ barb80.rf$finalModel
 ```
 
 #### PREDICTION with the test set (20%)
-```{r}
+
+The features' importance branches differently than the previous model. It attains an out-of-bag error rate of 0.5% and an out-of-sample error rate of 0.6%.
+```{r anal.rf80, dependson='rf80'}
 pred <- predict(barb80.rf,testing)
 testing$predRight <- pred==testing$classe
 table(pred,testing$classe)
@@ -209,6 +195,8 @@ table(testing$predRight,testing$classe)
 
 
 ```{r, eval=FALSE, echo=FALSE}
+### Submission script ###
+
 answers <- as.character(pred)
 
 pml_write_files = function(x){
@@ -231,45 +219,17 @@ summary(modFit)
 
 
 ```{r eval=FALSE, echo=FALSE}
-### save object to .Rdata
+### save object or environment to .Rdata ###
 save.image()
 ```
 
-
-
-
-
-## Out-of-bag Error Estimate without Cross Validation
-In random forests, there is no need for cross-validation or a separate test set to get an unbiased estimate of the test set error.
+#### Out-of-bag Error Estimate without Cross Validation
+In random forests, there is no need for cross-validation or a separate test set to get an unbiased estimate of the test set error. Instead we use the out-of-bag error estimate.
 http://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm#ooberr
-
-
-
-
-
 
 ---
 
-### Works Cited
+## Works Cited
 
 Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6. 
 Cited by 2 (Google Scholar)
-
----
-
-## Other notes, to be reviewed/deleted:
-```r
-dim(subset(training1, training1$classe=="A"))
-[1] 5580   60
-dim(subset(training1, training1$classe=="B"))
-[1] 3797   60
-dim(subset(training1, training1$classe=="C"))
-[1] 3422   60
-dim(subset(training1, training1$classe=="D"))
-[1] 3216   60
-dim(subset(training1, training1$classe=="E"))
-[1] 3607   60
-dim(subset(training1, training1$classe=="F"))
-[1]  0 60
-
-```
