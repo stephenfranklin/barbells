@@ -5,7 +5,7 @@ date: "July 17, 2014"
 output: html_document
 ---
 
-In this analysis, we predict whether the subject performed an exercise in one of five manners: correctly, or having made one of four common mistakes in movement. We found that the tree classification algorithm poorly predicted the class of movement (not better than chance), but that the random forest algorithm predicted it very well (OOB error of 0.6%).
+In this analysis, we predict whether the subject performed an exercise in one of five manners: correctly, or having made one of four common mistakes in movement. We found that the tree classification algorithm poorly predicted the class of movement (not better than chance), but that the random forest algorithm predicted it very well (OOB error of 0.6%). The prediction indicates that as a body performs an exercise, a mistake could easily be detected by monitoring whether certain movements excede defined boundaries (e.g. the waist extending forward or backward too much). Thus inertial  sensors could aid in improving the exercise quality.
 
 Excerpt from [Groupware@LES](http://groupware.les.inf.puc-rio.br/har):    
 
@@ -26,12 +26,16 @@ There are six subjects and 19,622 observations. Each subject has many observatio
 
 There are occasional observatons for which the 'new_window' variable is marked 'yes', and which have additional features. There are features for each dimension and location: kurtosis, skewness, max, min, amplitude, avg, stddev, var; as well as 'var_total_accel_' for each location.
 
-We are provided the test set, 'pml-testing.csv', so we ought to ascertain some important things about it. (Although one doesn't usually look at their test set, they do usually know some basic things about it.) Firstly, the test set is not time sliced, so we needn't worry about deriving time sliced predictions. Second, the test set doesn't contain any data for the additional features that accompany 'new_window = yes', therefore all of that data may be safely ignored. This test set is actually the grading test set and doesn't contain the outcomes (The last column is 'problem_id' instead of 'classe'. We'll make a new test set from 'pml-training.csv' to evaluate our predictions.
+We are provided the test set, 'pml-testing.csv', so we ought to ascertain some important things about it. (Although one doesn't usually look at their test set, they do usually know some basic things about it.) Firstly, the test set is not time sliced, so we needn't worry about deriving time sliced predictions. Second, the test set doesn't contain any data for the additional features that accompany 'new_window = yes', therefore all of that data may be safely ignored. This test set is actually the grading test set and doesn't contain the outcomes. (The last column is 'problem_id' instead of 'classe'.) We'll make a new test set from 'pml-training.csv' to evaluate our predictions.
 
 ## Analysis
 
 ### Get the data
 The data used in this analysis was collected by [Groupware@LES](http://groupware.les.inf.puc-rio.br/har).
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(cache=2)
+```
+
 ```{r getdata, eval=FALSE}
 data_train <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
 data_test <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
@@ -40,7 +44,7 @@ download.file(url = data_test, destfile = "pml-testing.csv",method = "wget")
 ```
 
 ### Load the data:
-```{r load, cache=TRUE}
+```{r load}
 pml.training <- read.csv("pml-training.csv")
 pml.testing <- read.csv("pml-testing.csv")
 #edit(pml.training)
@@ -55,36 +59,35 @@ sum(is.na(pml.training1))  ## Check for NAs. 0 is nice.
 pml.testing1 <- pml.testing[,-except.these]
 
 ### Integer variables to numeric ###
-which( colnames(pml.training1)=="classe" )
+which( colnames(pml.training1)=="classe" )  ## <-- classe is the outcome.
 pml.training1[, -53] <- as.data.frame(lapply(pml.training1[,-53],as.numeric))
 pml.testing1[, -53] <- as.data.frame(lapply(pml.testing1[,-53],as.numeric))
 #str(pml.training1)
 ```
 
 ### R Libraries
-```{r libraries, cache=FALSE}
-library(caret); library(randomForest); library(rattle); library(rpart)
+```{r libraries, cache=FALSE, message=FALSE}
+library(caret); library(randomForest); library(rpart)
 ```
 
 ### Split Data
 We'll reserve 80% of our data for training and 20% for the test set.
-```{r split, cache=TRUE}
+```{r split}
 set.seed(42)
 inTrain <- createDataPartition(y=pml.training1$classe,
                               p=0.80, list=FALSE)
 training <- pml.training1[inTrain,]
 testing <- pml.training1[-inTrain,]
-training[1,56]
+training[1,53]
 class(training$classe)
 dim(training);dim(testing)
-#str(testing)
 ```
 The training set is now randomized (though equally distributed amongst the five classes of our outcome variable 'classe'.)
 
 ### Model with Trees
 We'll train a model the Classification and Regression Tree (CART) algorithm (`method='rpart'`). We'll also use a 10-fold cross-validation (from within the `trControl` settings).
 
-```{r tree, dependson='split', cache=TRUE}
+```{r tree, dependson='split'}
 set.seed(42)
 system.time( barb.tr <- train(classe ~ .,method="rpart",data=training, trControl = trainControl(method = "cv", number = 10)) )
 ####   user  system elapsed 
@@ -102,19 +105,18 @@ barb.tr$results ## cp = complexity parameter
 
 confusionMatrix(barb.tr)
 
+### Test the Tree Model ###
 pred.te<- predict(barb.tr,newdata=testing)
-
 testing$predtrRight <- pred.te==testing$classe
 table(pred.te,testing$classe)
 1-sum(testing$predtrRight)/nrow(testing)  ## out of sample error rate
-
 ```
 
 ### Model with Random Forest
 
 #### This Random Forest took too long to calculate proximities with the 80% training set and with `prox=TRUE`.
 ```{r rf-fail, eval=FALSE, echo=TRUE}
-####  Train with 80%
+### Train with 80% ###
 set.seed(42)
 system.time( barb80.rf <- train(classe~ .,data=training,method="rf",prox=TRUE) )
 #### With 80% of the data in the training set,
@@ -122,38 +124,40 @@ system.time( barb80.rf <- train(classe~ .,data=training,method="rf",prox=TRUE) )
 #### Timing stopped at: 33087.95 353.427 38917.49 
 ```
 
-#### This Random Forest model uses a training set of 20% to keep the processing time down (prox = TRUE).
+#### This Random Forest model uses a training set of 20% to keep the processing time down (`prox = TRUE`).
 
 ##### Split the Data (20/80)
-```{r split20, cache=TRUE}
+```{r split20}
 set.seed(42)
 inTrain <- createDataPartition(y=pml.training1$classe,
                               p=0.20, list=FALSE)
 training20 <- pml.training1[inTrain,]
 testing80 <- pml.training1[-inTrain,]
-training20[1,56]
+training20[1,53]
 class(training20$classe)
 dim(training20);dim(testing80)
-#str(testing80)
 ```
 
 ##### Train the Random Forest model (20%)
-The out-of-bag error rate is 2.39%. 
-```{r rf20, dependson='split20', cache=TRUE}
+ 
+```{r rf20, dependson='split20'}
 set.seed(42)
 system.time( barb.rf <- train(classe ~., data=training20,method="rf",prox=TRUE) )
 ####     user   system  elapsed 
 #### 3395.666   34.611 3509.028 
+```
 
+```{r rf20.model, dependson='rf20'}
 barb.rf$finalModel
 varImpPlot(barb.rf$finalModel)
 
-## Get features in order of importance
+### Get features in order of importance ###
 imp <- as.data.frame(barb.rf$finalModel$importance)
 imp <- cbind(feature = rownames(imp), imp)
 rownames(imp)<-NULL
 head(imp[with(imp, order(-MeanDecreaseGini)), ],10)
 ```
+The out-of-bag error rate is 2.39%.
 
 #### Predicting the random forest model with the test set of 80% 
 The out-of-sample error rate is 2.46%
@@ -162,21 +166,24 @@ pred <- predict(barb.rf,testing80)
 testing80$predRight <- pred==testing80$classe
 table(pred,testing80$classe)
 
-### Out-of-Sample error rate
+### Out-of-Sample error rate ###
 1-sum(testing80$predRight)/nrow(testing80)
 ```
 
-#### This Random Forest model uses an 80% Training set but doesn't calculate proximities (prox=FALSE).
-```{r rf80, dependson='split', cache=TRUE}
+#### This Random Forest model uses an 80% Training set but doesn't calculate proximities (`prox=FALSE`).
+```{r rf80, dependson='split'}
+set.seed(42)
 system.time( barb80.rf <- train(classe~ .,data=training,method="rf",prox=FALSE) )
 ####     user   system  elapsed 
 #### 8358.456   66.568 8647.038 
+```
 
-## Get features in order of importance
+```{r, rf80imp, dependson='rf80'}
+### Get features in order of importance ###
 imp80 <- as.data.frame(barb80.rf$finalModel$importance)
 imp80 <- cbind(feature = rownames(imp80), imp80)
 rownames(imp80)<-NULL
-head(imp[with(imp80, order(-MeanDecreaseGini)), ],10)
+head(imp80[with(imp80, order(-MeanDecreaseGini)), ],10)
 
 varImpPlot(barb80.rf$finalModel)
 
@@ -193,7 +200,7 @@ table(pred,testing$classe)
 
 table(testing$predRight,testing$classe)
 
-### Out-of-Sample Error rate
+### Out-of-Sample Error rate ###
 1-sum(testing$predRight)/nrow(testing)
 ```
 
