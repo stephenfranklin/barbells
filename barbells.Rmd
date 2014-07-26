@@ -138,14 +138,14 @@ dim(training20);dim(testing80)
 ```
 
 ##### Train the Random Forest model (20%)
-The out-of-bag error rate is 2.4%. 
+The out-of-bag error rate is 2.39%. 
 ```{r rf20, dependson='split20', cache=TRUE}
 set.seed(42)
 system.time( barb.rf <- train(classe ~., data=training20,method="rf",prox=TRUE) )
 ####     user   system  elapsed 
 #### 3395.666   34.611 3509.028 
-barb.rf$finalModel
 
+barb.rf$finalModel
 varImpPlot(barb.rf$finalModel)
 
 ## Get features in order of importance
@@ -156,10 +156,14 @@ head(imp[with(imp, order(-MeanDecreaseGini)), ],10)
 ```
 
 #### Predicting the random forest model with the test set of 80% 
+The out-of-sample error rate is 2.46%
 ```{r anal.rf20, dependson='rf20'}
 pred <- predict(barb.rf,testing80)
-testing$predRight <- pred==testing80$classe
+testing80$predRight <- pred==testing80$classe
 table(pred,testing80$classe)
+
+### Out-of-Sample error rate
+1-sum(testing80$predRight)/nrow(testing80)
 ```
 
 #### This Random Forest model uses an 80% Training set but doesn't calculate proximities (prox=FALSE).
